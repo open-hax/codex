@@ -147,10 +147,15 @@ export function createCodexFetcher(deps: CodexFetcherDeps) {
 				bodyToSend = {
 					...bodyToSend,
 					input: bodyToSend.input.map((it: any) => {
-						if (typeof it?.content === "string") {
-							return { ...it, content: [{ type: "input_text", text: it.content }] };
+						let next = it ?? {};
+						// Ensure Responses API message shape
+						if (next && typeof next === "object" && "role" in next && !("type" in next)) {
+							next = { type: "message", ...next };
 						}
-						return it;
+						if (typeof next?.content === "string") {
+							next = { ...next, content: [{ type: "input_text", text: next.content }] };
+						}
+						return next;
 					}),
 				};
 			}
