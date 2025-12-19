@@ -92,18 +92,10 @@ export function extractRequestUrl(input: Request | string | URL): string {
  * @param url - Original URL
  * @returns Rewritten URL for Codex backend
  */
-export function rewriteUrlForCodex(url: string, model?: string): string {
-	// Avoid double-rewriting
+export function rewriteUrlForCodex(url: string, _model?: string): string {
+	// Avoid double-rewriting; route all responses through Codex path
 	if (url.includes(URL_PATHS.CODEX_RESPONSES)) return url;
-
-	// Only route Codex-family and GPT-5.2 models through the Codex path
-	const m = (model || "").toLowerCase();
-	const isCodex = m.startsWith("gpt-5.1-codex") || m.startsWith("gpt-5-codex");
-	const isGpt52 = m.startsWith("gpt-5.2");
-	if (isCodex || isGpt52) {
-		return url.replace(URL_PATHS.RESPONSES, URL_PATHS.CODEX_RESPONSES);
-	}
-	return url;
+	return url.replace(URL_PATHS.RESPONSES, URL_PATHS.CODEX_RESPONSES);
 }
 
 function applyPromptCacheKey(body: RequestBody, sessionContext?: SessionContext): RequestBody {
@@ -243,6 +235,8 @@ export function createCodexHeaders(
 		headers.delete(OPENAI_HEADERS.CONVERSATION_ID);
 		headers.delete(OPENAI_HEADERS.SESSION_ID);
 	}
+	// Responses API expects JSON body
+	headers.set("content-type", "application/json");
 	headers.set("accept", "text/event-stream");
 	return headers;
 }

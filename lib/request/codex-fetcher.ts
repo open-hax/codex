@@ -150,6 +150,7 @@ export function createCodexFetcher(deps: CodexFetcherDeps) {
 
 		const response = await fetch(url, { ...requestInit, headers });
 		logRequest(LOG_STAGES.RESPONSE, {
+			url,
 			status: response.status,
 			ok: response.ok,
 			statusText: response.statusText,
