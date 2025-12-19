@@ -21,7 +21,7 @@ describe("General constants", () => {
 	});
 
 	it("documents codex networking defaults", () => {
-		expect(CODEX_BASE_URL).toBe("https://chatgpt.com/backend-api");
+		expect(CODEX_BASE_URL).toBe("https://chatgpt.com/backend-api/codex");
 		expect(DUMMY_API_KEY).toBe("chatgpt-oauth");
 	});
 
