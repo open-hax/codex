@@ -111,7 +111,7 @@ describe("createCodexFetcher", () => {
 		expect(rewriteUrlForCodexMock).toHaveBeenCalled();
 		expect(transformRequestForCodexMock).toHaveBeenCalledWith(
 			expect.anything(),
-			"https://codex/backend",
+			"https://api.openai.com/v1/chat/completions",
 			"instructions",
 			{ global: {}, models: {} },
 			true,

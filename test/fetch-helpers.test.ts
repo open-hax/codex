@@ -122,7 +122,7 @@ describe("Fetch Helpers Module", () => {
 	describe("rewriteUrlForCodex", () => {
 		it("should rewrite /responses to /codex/responses", () => {
 			const url = "https://chatgpt.com/backend-api/responses";
-			expect(rewriteUrlForCodex(url)).toBe("https://chatgpt.com/backend-api/codex/responses");
+			expect(rewriteUrlForCodex(url, "gpt-5.2")).toBe("https://chatgpt.com/backend-api/codex/responses");
 		});
 
 		it("should not modify URL that already targets codex", () => {
@@ -137,7 +137,7 @@ describe("Fetch Helpers Module", () => {
 
 		it("should only replace first occurrence", () => {
 			const url = "https://example.com/responses/responses";
-			const result = rewriteUrlForCodex(url);
+			const result = rewriteUrlForCodex(url, "gpt-5.2");
 			expect(result).toBe("https://example.com/codex/responses/responses");
 		});
 	});

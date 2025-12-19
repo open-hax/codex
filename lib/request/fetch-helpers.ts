@@ -92,11 +92,18 @@ export function extractRequestUrl(input: Request | string | URL): string {
  * @param url - Original URL
  * @returns Rewritten URL for Codex backend
  */
-export function rewriteUrlForCodex(url: string): string {
-	if (url.includes(URL_PATHS.CODEX_RESPONSES)) {
-		return url;
+export function rewriteUrlForCodex(url: string, model?: string): string {
+	// Avoid double-rewriting
+	if (url.includes(URL_PATHS.CODEX_RESPONSES)) return url;
+
+	// Only route Codex-family and GPT-5.2 models through the Codex path
+	const m = (model || "").toLowerCase();
+	const isCodex = m.startsWith("gpt-5.1-codex") || m.startsWith("gpt-5-codex");
+	const isGpt52 = m.startsWith("gpt-5.2");
+	if (isCodex || isGpt52) {
+		return url.replace(URL_PATHS.RESPONSES, URL_PATHS.CODEX_RESPONSES);
 	}
-	return url.replace(URL_PATHS.RESPONSES, URL_PATHS.CODEX_RESPONSES);
+	return url;
 }
 
 function applyPromptCacheKey(body: RequestBody, sessionContext?: SessionContext): RequestBody {

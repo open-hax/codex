@@ -101,16 +101,19 @@ export function createCodexFetcher(deps: CodexFetcherDeps) {
 		}
 
 		const originalUrl = extractRequestUrl(input);
-		const url = rewriteUrlForCodex(originalUrl);
 		const transformation = await transformRequestForCodex(
 			init,
-			url,
+			originalUrl,
 			codexInstructions,
 			userConfig,
 			codexMode,
 			sessionManager,
 			pluginConfig,
 		);
+
+		// Decide final endpoint AFTER we know the normalized model
+		const effectiveModel = transformation?.body?.model;
+		const url = rewriteUrlForCodex(originalUrl, effectiveModel);
 
 		if (transformation) {
 			const commandResponse = maybeHandleCodexCommand(transformation.body, { sessionManager });

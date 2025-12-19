@@ -6,8 +6,8 @@
 /** Plugin identifier for logging and error messages */
 export const PLUGIN_NAME = "openhax/codex";
 
-/** Base URL for ChatGPT backend API (point at Codex path) */
-export const CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
+/** Base URL for ChatGPT backend API */
+export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 
 /** Dummy API key used for OpenAI SDK (actual auth via OAuth) */
 export const DUMMY_API_KEY = "chatgpt-oauth";
