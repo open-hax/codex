@@ -144,19 +144,49 @@ export function createCodexFetcher(deps: CodexFetcherDeps) {
 			const sendingToCodex = url.includes("/codex/responses");
 			let bodyToSend = effectiveBody as any;
 			if (sendingToCodex && Array.isArray(bodyToSend.input)) {
+				// 1) Normalize message items
+				let normalizedInput = bodyToSend.input.map((it: any) => {
+					let next = it ?? {};
+					if (next && typeof next === "object" && "role" in next && !("type" in next)) {
+						next = { type: "message", ...next };
+					}
+					if (typeof next?.content === "string") {
+						next = { ...next, content: [{ type: "input_text", text: next.content }] };
+					}
+					return next;
+				});
+
+				// 2) Lift leading system/developer messages into instructions
+				const getText = (msg: any): string => {
+					const c = msg?.content;
+					if (typeof c === "string") return c;
+					if (Array.isArray(c)) {
+						return c
+							.filter((p) => p && p.type === "input_text" && typeof p.text === "string")
+							.map((p) => p.text)
+							.join("\n");
+					}
+					return "";
+				};
+				let instr = typeof bodyToSend.instructions === "string" ? bodyToSend.instructions : "";
+				let cut = 0;
+				while (cut < normalizedInput.length) {
+					const msg = normalizedInput[cut];
+					const role = msg?.role;
+					if (role === "developer" || role === "system") {
+						const t = getText(msg).trim();
+						if (t) instr = instr ? `${instr}\n\n${t}` : t;
+						cut += 1;
+						continue;
+					}
+					break;
+				}
+				normalizedInput = normalizedInput.slice(cut);
+
 				bodyToSend = {
 					...bodyToSend,
-					input: bodyToSend.input.map((it: any) => {
-						let next = it ?? {};
-						// Ensure Responses API message shape
-						if (next && typeof next === "object" && "role" in next && !("type" in next)) {
-							next = { type: "message", ...next };
-						}
-						if (typeof next?.content === "string") {
-							next = { ...next, content: [{ type: "input_text", text: next.content }] };
-						}
-						return next;
-					}),
+					instructions: instr || undefined,
+					input: normalizedInput,
 				};
 			}
 			requestInit.body = JSON.stringify(bodyToSend);
