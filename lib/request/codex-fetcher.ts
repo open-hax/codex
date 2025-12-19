@@ -147,7 +147,7 @@ export function createCodexFetcher(deps: CodexFetcherDeps) {
 				bodyToSend = {
 					...bodyToSend,
 					input: bodyToSend.input.map((it: any) => {
-						if (typeof it?.content === "string" && (it?.role === "user" || it?.role === "assistant")) {
+						if (typeof it?.content === "string") {
 							return { ...it, content: [{ type: "input_text", text: it.content }] };
 						}
 						return it;
