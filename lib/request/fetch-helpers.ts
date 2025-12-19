@@ -93,6 +93,9 @@ export function extractRequestUrl(input: Request | string | URL): string {
  * @returns Rewritten URL for Codex backend
  */
 export function rewriteUrlForCodex(url: string): string {
+	if (url.includes(URL_PATHS.CODEX_RESPONSES)) {
+		return url;
+	}
 	return url.replace(URL_PATHS.RESPONSES, URL_PATHS.CODEX_RESPONSES);
 }
 

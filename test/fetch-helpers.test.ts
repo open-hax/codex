@@ -125,6 +125,11 @@ describe("Fetch Helpers Module", () => {
 			expect(rewriteUrlForCodex(url)).toBe("https://chatgpt.com/backend-api/codex/responses");
 		});
 
+		it("should not modify URL that already targets codex", () => {
+			const url = "https://chatgpt.com/backend-api/codex/responses";
+			expect(rewriteUrlForCodex(url)).toBe(url);
+		});
+
 		it("should not modify URL without /responses", () => {
 			const url = "https://chatgpt.com/backend-api/other";
 			expect(rewriteUrlForCodex(url)).toBe(url);
