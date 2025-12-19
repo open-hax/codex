@@ -140,7 +140,21 @@ export function createCodexFetcher(deps: CodexFetcherDeps) {
 		const hasTools = effectiveBody?.tools !== undefined;
 		const requestInit: RequestInit = { ...(transformation?.updatedInit ?? init ?? {}) };
 		if (effectiveBody) {
-			requestInit.body = JSON.stringify(effectiveBody);
+			// Normalize content blocks for the Codex Responses endpoint: wrap user/assistant string content
+			const sendingToCodex = url.includes("/codex/responses");
+			let bodyToSend = effectiveBody as any;
+			if (sendingToCodex && Array.isArray(bodyToSend.input)) {
+				bodyToSend = {
+					...bodyToSend,
+					input: bodyToSend.input.map((it: any) => {
+						if (typeof it?.content === "string" && (it?.role === "user" || it?.role === "assistant")) {
+							return { ...it, content: [{ type: "input_text", text: it.content }] };
+						}
+						return it;
+					}),
+				};
+			}
+			requestInit.body = JSON.stringify(bodyToSend);
 		}
 		const accessToken = currentAuth.type === "oauth" ? currentAuth.access : "";
 		const headers = createCodexHeaders(requestInit, accountId, accessToken, {
