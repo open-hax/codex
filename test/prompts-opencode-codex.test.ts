@@ -1,5 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openCodePromptCache } from "../lib/cache/session-cache.js";
 
 const files = new Map<string, string>();
@@ -10,11 +10,28 @@ const homedirMock = vi.fn(() => "/mock-home");
 const fetchMock = vi.fn();
 const recordCacheHitMock = vi.fn();
 const recordCacheMissMock = vi.fn();
+const existsSync = vi.fn(() => false);
+const appendFileSync = vi.fn();
+const writeFileSync = vi.fn();
+const mkdirSync = vi.fn();
 
 vi.mock("node:fs/promises", () => ({
 	mkdir: mkdirMock,
 	readFile: readFileMock,
 	writeFile: writeFileMock,
+}));
+
+vi.mock("node:fs", () => ({
+	default: {
+		existsSync,
+		appendFileSync,
+		writeFileSync,
+		mkdirSync,
+	},
+	existsSync,
+	appendFileSync,
+	writeFileSync,
+	mkdirSync,
 }));
 
 vi.mock("node:os", () => ({
@@ -38,8 +55,8 @@ vi.mock("../lib/cache/cache-metrics.js", () => ({
 
 describe("OpenCode Codex Prompt Fetcher", () => {
 	const cacheDir = join("/mock-home", ".opencode", "cache");
-	const cacheFile = join(cacheDir, "opencode-codex.txt");
-	const cacheMetaFile = join(cacheDir, "opencode-codex-meta.json");
+	const cacheFile = join(cacheDir, "openhax-codex-opencode-prompt.txt");
+	const cacheMetaFile = join(cacheDir, "openhax-codex-opencode-prompt-meta.json");
 
 	beforeEach(() => {
 		files.clear();
@@ -50,6 +67,10 @@ describe("OpenCode Codex Prompt Fetcher", () => {
 		fetchMock.mockClear();
 		recordCacheHitMock.mockClear();
 		recordCacheMissMock.mockClear();
+		existsSync.mockReset();
+		appendFileSync.mockReset();
+		writeFileSync.mockReset();
+		mkdirSync.mockReset();
 		openCodePromptCache.clear();
 		vi.stubGlobal("fetch", fetchMock);
 	});
@@ -70,6 +91,7 @@ describe("OpenCode Codex Prompt Fetcher", () => {
 			expect(recordCacheHitMock).toHaveBeenCalledWith("opencodePrompt");
 			expect(recordCacheMissMock).not.toHaveBeenCalled();
 			expect(readFileMock).not.toHaveBeenCalled();
+			expect(mkdirMock).toHaveBeenCalled(); // Should still call mkdir for cache directory
 		});
 
 		it("falls back to file cache when session cache misses", async () => {
@@ -106,10 +128,10 @@ describe("OpenCode Codex Prompt Fetcher", () => {
 
 			expect(contentFileCall).toBeTruthy();
 			expect(metaFileCall).toBeTruthy();
-			expect(contentFileCall?.[1]).toBe("fresh-content");
-			expect(contentFileCall?.[2]).toBe("utf-8");
-			expect(metaFileCall?.[2]).toBe("utf-8");
-			expect(metaFileCall?.[1]).toContain("new-etag");
+			expect(contentFileCall![1]).toBe("fresh-content");
+			expect(contentFileCall![2]).toBe("utf-8");
+			expect(metaFileCall![2]).toBe("utf-8");
+			expect(metaFileCall![1]).toContain("new-etag");
 		});
 
 		it("uses file cache when within TTL period", async () => {
@@ -222,6 +244,30 @@ describe("OpenCode Codex Prompt Fetcher", () => {
 			const result = await getOpenCodeCodexPrompt();
 
 			expect(result).toBe(cachedContent);
+		});
+
+		it("falls back to legacy URL when primary returns 404", async () => {
+			openCodePromptCache.get = vi.fn().mockReturnValue(undefined);
+			readFileMock.mockRejectedValue(new Error("No cache files"));
+
+			fetchMock
+				.mockResolvedValueOnce(new Response("Missing", { status: 404 }))
+				.mockResolvedValueOnce(
+					new Response("legacy-content", { status: 200, headers: { etag: '"legacy-etag"' } }),
+				);
+
+			const { getOpenCodeCodexPrompt } = await import("../lib/prompts/opencode-codex.js");
+			const result = await getOpenCodeCodexPrompt();
+
+			expect(result).toBe("legacy-content");
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+			expect(fetchMock.mock.calls[0][0]).toContain("/dev/");
+			expect(fetchMock.mock.calls[1][0]).toContain("/main/");
+			const metaWrite = writeFileMock.mock.calls.find((call) => call[0] === cacheMetaFile);
+			const metaPayload = metaWrite?.[1];
+			const metaObject = typeof metaPayload === "string" ? JSON.parse(metaPayload) : metaPayload;
+			expect(metaObject?.etag).toBe('"legacy-etag"');
+			expect(metaObject?.sourceUrl).toContain("/main/");
 		});
 
 		it("creates cache directory when it does not exist", async () => {

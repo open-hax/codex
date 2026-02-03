@@ -4,7 +4,7 @@ This file provides coding guidance for AI agents (including Claude Code, Codex, 
 
 ## Overview
 
-This is an **opencode plugin** that enables OAuth authentication with OpenAI's ChatGPT Plus/Pro Codex backend. It allows users to access `gpt-5-codex`, `gpt-5-codex-mini`, and `gpt-5` models through their ChatGPT subscription instead of using OpenAI Platform API credits.
+This is an **opencode plugin** that enables OAuth authentication with OpenAI's ChatGPT Plus/Pro Codex backend. It now mirrors the Codex CLI lineup, making `gpt-5.1-codex-max` (with optional `xhigh` reasoning) the default while also exposing the new `gpt-5.2` frontier preset, the existing `gpt-5.1-codex` / `gpt-5.1-codex-mini`, and legacy `gpt-5` models—all available through a ChatGPT subscription instead of OpenAI Platform API credits.
 
 **Key architecture principle**: 7-step fetch flow that intercepts opencode's OpenAI SDK requests, transforms them for the ChatGPT backend API, and handles OAuth token management.
 
@@ -58,25 +58,30 @@ The main entry point orchestrates a **7-step fetch flow**:
 ### Module Organization
 
 **Core Plugin** (`index.ts`)
+
 - Plugin definition and main fetch orchestration
 - OAuth loader (extracts ChatGPT account ID from JWT)
 - Configuration loading and CODEX_MODE determination
 
 **Authentication** (`lib/auth/`)
+
 - `auth.ts`: OAuth flow (PKCE, token exchange, JWT decoding, refresh)
 - `server.ts`: Local HTTP server for OAuth callback (port 1455)
 - `browser.ts`: Platform-specific browser opening
 
 **Request Handling** (`lib/request/`)
+
 - `fetch-helpers.ts`: 10 focused helper functions for main fetch flow
 - `request-transformer.ts`: Body transformations (model normalization, reasoning config, input filtering)
 - `response-handler.ts`: SSE to JSON conversion
 
 **Prompts** (`lib/prompts/`)
+
 - `codex.ts`: Fetches Codex instructions from GitHub (ETag-cached), tool remap message
 - `codex-opencode-bridge.ts`: CODEX_MODE bridge prompt for CLI parity
 
 **Configuration** (`lib/`)
+
 - `config.ts`: Plugin config loading, CODEX_MODE determination
 - `constants.ts`: All magic values, URLs, error messages
 - `types.ts`: TypeScript type definitions
@@ -85,10 +90,12 @@ The main entry point orchestrates a **7-step fetch flow**:
 ### Key Design Patterns
 
 **1. Stateless Operation**: Uses `store: false` + `include: ["reasoning.encrypted_content"]`
+
 - Allows multi-turn conversations without server-side storage
 - Encrypted reasoning content persists context across turns
 
 **2. CODEX_MODE** (enabled by default):
+
 - **Priority**: `CODEX_MODE` env var > `~/.opencode/openhax-codex-config.json` > default (true)
 - When enabled: Filters out OpenCode system prompts, adds Codex-OpenCode bridge prompt with Task tool & MCP awareness
 - When disabled: Uses legacy tool remap message
@@ -96,17 +103,20 @@ The main entry point orchestrates a **7-step fetch flow**:
 - **Prompt verification**: Caches OpenCode's codex.txt from GitHub (ETag-based) to verify exact prompt removal, with fallback to text signature matching
 
 **3. Configuration Merging**:
+
 - Global options (`provider.openai.options`) + per-model options (`provider.openai.models[name].options`)
 - Model-specific options override global
 - Plugin defaults: `reasoningEffort: "medium"`, `reasoningSummary: "auto"`, `textVerbosity: "medium"`
 
 **4. Model Normalization**:
+
 - All `gpt-5-codex` variants → `gpt-5-codex`
 - All `gpt-5-codex-mini*` or `codex-mini-latest` variants → `codex-mini-latest`
 - All `gpt-5` variants → `gpt-5`
 - `minimal` effort auto-normalized to `low` for gpt-5-codex (API limitation) and clamped to `medium` (or `high` when requested) for Codex Mini
 
 **5. Codex Instructions Caching**:
+
 - Fetches from latest release tag (not main branch)
 - ETag-based HTTP conditional requests
 - Cache invalidation when release tag changes
@@ -124,6 +134,7 @@ The main entry point orchestrates a **7-step fetch flow**:
 ### Modifying Request Transformation
 
 All request transformations go through `transformRequestBody()`:
+
 - Input filtering: `filterInput()`, `filterOpenCodeSystemPrompts()`
 - Message injection: `addCodexBridgeMessage()` or `addToolRemapMessage()`
 - Reasoning config: `getReasoningConfig()` (follows Codex CLI defaults, not opencode defaults)
@@ -132,6 +143,7 @@ All request transformations go through `transformRequestBody()`:
 ### OAuth Flow Modifications
 
 OAuth implementation follows OpenAI Codex CLI patterns:
+
 - Client ID: `app_EMoamEEZ73f0CkXaXp7hrann`
 - PKCE with S256 challenge
 - Special params: `codex_cli_simplified_flow=true`, `originator=codex_cli_rs`
@@ -148,14 +160,16 @@ OAuth implementation follows OpenAI Codex CLI patterns:
 
 This plugin **intentionally differs from opencode defaults** because it accesses ChatGPT backend API (not OpenAI Platform API):
 
-| Setting | opencode Default | This Plugin Default | Reason |
-|---------|-----------------|---------------------|--------|
-| `reasoningEffort` | "high" (gpt-5) | "medium" | Matches Codex CLI default |
-| `textVerbosity` | "low" (gpt-5) | "medium" | Matches Codex CLI default |
-| `reasoningSummary` | "detailed" | "auto" | Matches Codex CLI default |
-| gpt-5-codex config | (excluded) | Full support | opencode excludes gpt-5-codex from auto-config |
-| `store` | true | false | Required for ChatGPT backend |
-| `include` | (not set) | `["reasoning.encrypted_content"]` | Required for stateless operation |
+| Setting            | opencode Default | This Plugin Default               | Reason                                         |
+| ------------------ | ---------------- | --------------------------------- | ---------------------------------------------- |
+| `reasoningEffort`  | "high" (gpt-5)   | "medium"                          | Matches Codex CLI default                      |
+| `textVerbosity`    | "low" (gpt-5)    | "medium"                          | Matches Codex CLI default                      |
+| `reasoningSummary` | "detailed"       | "auto"                            | Matches Codex CLI default                      |
+| gpt-5-codex config | (excluded)       | Full support                      | opencode excludes gpt-5-codex from auto-config |
+| `store`            | true             | false                             | Required for ChatGPT backend                   |
+| `include`          | (not set)        | `["reasoning.encrypted_content"]` | Required for stateless operation               |
+
+> **Extra High reasoning**: `reasoningEffort: "xhigh"` is honored for `gpt-5.1-codex-max` and `gpt-5.2`. Other models automatically downgrade it to `high` so their API calls remain valid.
 
 ## File Paths & Locations
 
@@ -186,9 +200,11 @@ This plugin **intentionally differs from opencode defaults** because it accesses
 ## Dependencies
 
 **Production**:
+
 - `@openauthjs/openauth` (OAuth PKCE implementation)
 
 **Development**:
+
 - `@opencode-ai/plugin` (peer dependency)
 - `vitest` (testing framework)
 - TypeScript
@@ -198,11 +214,13 @@ This plugin **intentionally differs from opencode defaults** because it accesses
 ## 🔗 Cross-Repository Integration
 
 ### Comprehensive Cross-References
+
 - **[CROSS_REFERENCES.md](./CROSS_REFERENCES.md)** - Complete cross-references to all related repositories
 - **[Workspace AGENTS.md](../AGENTS.md)** - Main workspace documentation
 - **[Repository Index](../REPOSITORY_INDEX.md)** - Complete repository overview
 
 ### Related Repositories
+
 - **[promethean](../promethean/)**: Agent orchestration and automated testing
 - **[agent-shell](../agent-shell/)**: Authentication patterns for Agent Shell
 - **[moofone/codex-ts-sdk](../moofone/codex-ts-sdk/)**: TypeScript SDK compatibility

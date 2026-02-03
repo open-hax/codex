@@ -1,5 +1,6 @@
 node_modules/
 bun.lockb
+.worktrees/
 
 dist/
 coverage/
@@ -11,6 +12,9 @@ opencode.json
 tmp
 .codex-cache
 .nx/
+.obsidian/
 
 .stryker-tmp/
 .worktrees/
+.envrc
+.env

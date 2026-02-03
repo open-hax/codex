@@ -5,8 +5,6 @@
 
 import type { Auth, OpencodeClient } from "@opencode-ai/sdk";
 import { refreshAccessToken } from "../auth/auth.js";
-import { detectCompactionCommand } from "../compaction/codex-compaction.js";
-import type { CompactionDecision } from "../compaction/compaction-executor.js";
 import {
 	ERROR_MESSAGES,
 	HTTP_STATUS,
@@ -17,8 +15,7 @@ import {
 } from "../constants.js";
 import { logError, logRequest } from "../logger.js";
 import type { SessionManager } from "../session/session-manager.js";
-import type { InputItem, PluginConfig, RequestBody, SessionContext, UserConfig } from "../types.js";
-import { cloneInputItems } from "../utils/clone.js";
+import type { PluginConfig, RequestBody, SessionContext, UserConfig } from "../types.js";
 import { transformRequestBody } from "./request-transformer.js";
 import { convertSseToJson, ensureContentType } from "./response-handler.js";
 
@@ -65,14 +62,18 @@ export async function refreshAndUpdateToken(
 		},
 	});
 
-	// Update current auth reference if it's OAuth type
+	// Build updated auth snapshot for callers (avoid mutating the parameter)
+	let updatedAuth: Auth = currentAuth;
 	if (currentAuth.type === "oauth") {
-		currentAuth.access = refreshResult.access;
-		currentAuth.refresh = refreshResult.refresh;
-		currentAuth.expires = refreshResult.expires;
+		updatedAuth = {
+			...currentAuth,
+			access: refreshResult.access,
+			refresh: refreshResult.refresh,
+			expires: refreshResult.expires,
+		};
 	}
 
-	return { success: true, auth: currentAuth };
+	return { success: true, auth: updatedAuth };
 }
 
 /**
@@ -91,8 +92,22 @@ export function extractRequestUrl(input: Request | string | URL): string {
  * @param url - Original URL
  * @returns Rewritten URL for Codex backend
  */
-export function rewriteUrlForCodex(url: string): string {
+export function rewriteUrlForCodex(url: string, _model?: string): string {
+	// Avoid double-rewriting; route all responses through Codex path
+	if (url.includes(URL_PATHS.CODEX_RESPONSES)) return url;
 	return url.replace(URL_PATHS.RESPONSES, URL_PATHS.CODEX_RESPONSES);
+}
+
+function applyPromptCacheKey(body: RequestBody, sessionContext?: SessionContext): RequestBody {
+	const promptCacheKey = sessionContext?.state?.promptCacheKey;
+	if (!promptCacheKey) return body;
+
+	const hostProvided = (body as any).prompt_cache_key || (body as any).promptCacheKey;
+	if (hostProvided) {
+		return body;
+	}
+
+	return { ...(body as any), prompt_cache_key: promptCacheKey } as RequestBody;
 }
 
 /**
@@ -117,7 +132,6 @@ export async function transformRequestForCodex(
 			body: RequestBody;
 			updatedInit: RequestInit;
 			sessionContext?: SessionContext;
-			compactionDecision?: CompactionDecision;
 	  }
 	| undefined
 > {
@@ -126,63 +140,64 @@ export async function transformRequestForCodex(
 	try {
 		const body = JSON.parse(init.body as string) as RequestBody;
 		const originalModel = body.model;
-		const originalInput = cloneInputItems(body.input ?? []);
-		const compactionEnabled = pluginConfig?.enableCodexCompaction !== false;
-		const compactionSettings = {
-			enabled: compactionEnabled,
-			autoLimitTokens: pluginConfig?.autoCompactTokenLimit,
-			autoMinMessages: pluginConfig?.autoCompactMinMessages ?? 8,
-		};
-		const manualCommand = compactionEnabled ? detectCompactionCommand(originalInput) : null;
-
 		const sessionContext = sessionManager?.getContext(body);
-		if (compactionEnabled && !manualCommand) {
-			sessionManager?.applyCompactedHistory?.(body, sessionContext);
-		}
 
-		// Log original request
+		const bodyWithCacheKey = applyPromptCacheKey(body, sessionContext);
+
 		logRequest(LOG_STAGES.BEFORE_TRANSFORM, {
 			url,
 			originalModel,
-			model: body.model,
-			hasTools: !!body.tools,
-			hasInput: !!body.input,
-			inputLength: body.input?.length,
+			model: bodyWithCacheKey.model,
+			hasTools: !!bodyWithCacheKey.tools,
+			hasInput: !!bodyWithCacheKey.input,
+			inputLength: bodyWithCacheKey.input?.length,
 			codexMode,
-			body: body as unknown as Record<string, unknown>,
+			body: bodyWithCacheKey as unknown as Record<string, unknown>,
 		});
 
-		// Transform request body
-		const transformResult = await transformRequestBody(body, codexInstructions, userConfig, codexMode, {
-			preserveIds: sessionContext?.preserveIds,
-			compaction: {
-				settings: compactionSettings,
-				commandText: manualCommand,
-				originalInput,
+		const transformResult = await transformRequestBody(
+			bodyWithCacheKey,
+			codexInstructions,
+			userConfig,
+			codexMode,
+			{
+				preserveIds: sessionContext?.preserveIds,
+				appendEnvContext: pluginConfig?.appendEnvContext ?? process.env.CODEX_APPEND_ENV_CONTEXT === "1",
 			},
-		});
-		const appliedContext =
-			sessionManager?.applyRequest(transformResult.body, sessionContext) ?? sessionContext;
 
-		// Log transformed request
+			sessionContext,
+		);
+
+		let resultingBody = transformResult.body;
+		let appliedContext = sessionContext;
+		if (sessionManager) {
+			const applyResult = sessionManager.applyRequest(transformResult.body, sessionContext);
+			resultingBody = applyResult.body;
+			appliedContext = applyResult.context ?? sessionContext;
+		}
+
 		logRequest(LOG_STAGES.AFTER_TRANSFORM, {
 			url,
 			originalModel,
-			normalizedModel: transformResult.body.model,
-			hasTools: !!transformResult.body.tools,
-			hasInput: !!transformResult.body.input,
-			inputLength: transformResult.body.input?.length,
-			reasoning: transformResult.body.reasoning as unknown,
-			textVerbosity: transformResult.body.text?.verbosity,
-			include: transformResult.body.include,
-			body: transformResult.body as unknown as Record<string, unknown>,
+			normalizedModel: resultingBody.model,
+			hasTools: !!resultingBody.tools,
+			hasInput: !!resultingBody.input,
+			inputLength: resultingBody.input?.length,
+			reasoning: resultingBody.reasoning as unknown,
+			textVerbosity: resultingBody.text?.verbosity,
+			include: resultingBody.include,
+			body: resultingBody as unknown as Record<string, unknown>,
 		});
 
+		const updatedInit: RequestInit = {
+			...init,
+			body: JSON.stringify(resultingBody),
+		};
+
 		return {
-			body: transformResult.body,
-			updatedInit: { ...init, body: JSON.stringify(transformResult.body) },
+			body: resultingBody,
+			updatedInit,
 			sessionContext: appliedContext,
-			compactionDecision: transformResult.compactionDecision,
 		};
 	} catch (e) {
 		logError(ERROR_MESSAGES.REQUEST_PARSE_ERROR, {
@@ -220,77 +235,106 @@ export function createCodexHeaders(
 		headers.delete(OPENAI_HEADERS.CONVERSATION_ID);
 		headers.delete(OPENAI_HEADERS.SESSION_ID);
 	}
+	// Responses API expects JSON body
+	headers.set("content-type", "application/json");
 	headers.set("accept", "text/event-stream");
 	return headers;
 }
 
+function safeParseErrorJson(raw: string): any | null {
+	try {
+		return JSON.parse(raw) as any;
+	} catch {
+		return null;
+	}
+}
+
+type RateLimitBuckets = {
+	primary: { used_percent?: number; window_minutes?: number; resets_at?: number };
+	secondary: { used_percent?: number; window_minutes?: number; resets_at?: number };
+};
+
+function parseRateLimits(headers: Headers): RateLimitBuckets | undefined {
+	const primary = {
+		used_percent: toNumber(headers.get("x-codex-primary-used-percent")),
+		window_minutes: toInt(headers.get("x-codex-primary-window-minutes")),
+		resets_at: toInt(headers.get("x-codex-primary-reset-at")),
+	};
+	const secondary = {
+		used_percent: toNumber(headers.get("x-codex-secondary-used-percent")),
+		window_minutes: toInt(headers.get("x-codex-secondary-window-minutes")),
+		resets_at: toInt(headers.get("x-codex-secondary-reset-at")),
+	};
+	const hasRateLimits = primary.used_percent !== undefined || secondary.used_percent !== undefined;
+
+	return hasRateLimits ? { primary, secondary } : undefined;
+}
+
+function isUsageLimitError(code: unknown): boolean {
+	return /usage_limit_reached|usage_not_included|rate_limit_exceeded/i.test(String(code ?? ""));
+}
+
+function buildUsageFriendlyMessage(
+	err: Record<string, unknown>,
+	rateLimits: RateLimitBuckets | undefined,
+): string | undefined {
+	const parsedReset =
+		typeof err.resets_at === "number"
+			? err.resets_at
+			: err.resets_at != null
+				? Number(err.resets_at)
+				: undefined;
+	const resetSource = Number.isFinite(parsedReset)
+		? (parsedReset as number)
+		: (rateLimits?.primary.resets_at ?? rateLimits?.secondary.resets_at);
+	const mins =
+		typeof resetSource === "number"
+			? Math.max(0, Math.round((resetSource * 1000 - Date.now()) / 60000))
+			: undefined;
+	const plan = err.plan_type ? ` (${String(err.plan_type).toLowerCase()} plan)` : "";
+	const when = mins !== undefined ? ` Try again in ~${mins} min.` : "";
+	return `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
+}
+
+function enrichErrorBody(raw: string, response: Response): { body: string; isJson: boolean } {
+	const parsed = safeParseErrorJson(raw);
+	if (!parsed) {
+		return { body: raw, isJson: false };
+	}
+
+	const err = (parsed as any)?.error ?? {};
+	const rate_limits = parseRateLimits(response.headers);
+	const usageLimit = isUsageLimitError(err.code ?? err.type);
+	const friendly_message = usageLimit ? buildUsageFriendlyMessage(err, rate_limits) : undefined;
+	const message = usageLimit
+		? (err.message ?? friendly_message)
+		: (err.message ??
+			(parsed as any)?.error?.message ??
+			(typeof parsed === "string" ? parsed : undefined) ??
+			`Request failed with status ${response.status}.`);
+
+	const enhanced = {
+		error: {
+			...err,
+			message,
+			friendly_message,
+			rate_limits,
+			status: response.status,
+		},
+	};
+
+	return { body: JSON.stringify(enhanced), isJson: true };
+}
+
 /**
- * Handles error responses from the Codex API
- * @param response - Error response from API
- * @returns Response with error details
+ * Enriches a Codex API error Response with structured error details and rate-limit metadata.
+ *
+ * @param response - The original error Response from a Codex API request
+ * @returns A Response with the same status and statusText whose body is either the original raw body or a JSON object containing an `error` object with `message`, optional `friendly_message`, optional `rate_limits`, and `status`. When the body is enriched, the response `Content-Type` is set to `application/json; charset=utf-8`.
  */
 export async function handleErrorResponse(response: Response): Promise<Response> {
 	const raw = await response.text();
-
-	let enriched = raw;
-	try {
-		const parsed = JSON.parse(raw) as any;
-		const err = parsed?.error ?? {};
-
-		// Parse Codex rate-limit headers if present
-		const h = response.headers;
-		const primary = {
-			used_percent: toNumber(h.get("x-codex-primary-used-percent")),
-			window_minutes: toInt(h.get("x-codex-primary-window-minutes")),
-			resets_at: toInt(h.get("x-codex-primary-reset-at")),
-		};
-		const secondary = {
-			used_percent: toNumber(h.get("x-codex-secondary-used-percent")),
-			window_minutes: toInt(h.get("x-codex-secondary-window-minutes")),
-			resets_at: toInt(h.get("x-codex-secondary-reset-at")),
-		};
-		const rate_limits =
-			primary.used_percent !== undefined || secondary.used_percent !== undefined
-				? { primary, secondary }
-				: undefined;
-
-		// Determine if this is a genuine usage limit error
-		const code = (err.code ?? err.type ?? "").toString();
-		const isUsageLimitError = /usage_limit_reached|usage_not_included|rate_limit_exceeded/i.test(code);
-
-		let friendly_message: string | undefined;
-		let message: string;
-
-		if (isUsageLimitError) {
-			const resetsAt = err.resets_at ?? primary.resets_at ?? secondary.resets_at;
-			const mins = resetsAt ? Math.max(0, Math.round((resetsAt * 1000 - Date.now()) / 60000)) : undefined;
-			const plan = err.plan_type ? ` (${String(err.plan_type).toLowerCase()} plan)` : "";
-			const when = mins !== undefined ? ` Try again in ~${mins} min.` : "";
-			friendly_message = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
-			message = err.message ?? friendly_message;
-		} else {
-			// Preserve original error message for non-usage-limit errors
-			message =
-				err.message ??
-				parsed?.error?.message ??
-				(typeof parsed === "string" ? parsed : undefined) ??
-				`Request failed with status ${response.status}.`;
-		}
-
-		const enhanced = {
-			error: {
-				...err,
-				message,
-				friendly_message,
-				rate_limits,
-				status: response.status,
-			},
-		};
-		enriched = JSON.stringify(enhanced);
-	} catch {
-		// Raw body not JSON; leave unchanged
-		enriched = raw;
-	}
+	const { body: enriched, isJson } = enrichErrorBody(raw, response);
 
 	logRequest(LOG_STAGES.ERROR_RESPONSE, {
 		status: response.status,
@@ -300,7 +344,9 @@ export async function handleErrorResponse(response: Response): Promise<Response>
 	logError(`${response.status} error`, { body: enriched });
 
 	const headers = new Headers(response.headers);
-	headers.set("content-type", "application/json; charset=utf-8");
+	if (isJson) {
+		headers.set("content-type", "application/json; charset=utf-8");
+	}
 	return new Response(enriched, {
 		status: response.status,
 		statusText: response.statusText,

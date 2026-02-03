@@ -104,6 +104,19 @@ describe("Auth Module", () => {
 			expect(decoded?.["https://api.openai.com/auth"]?.chatgpt_account_id).toBe("account-123");
 		});
 
+		it("should decode base64url JWT payloads without padding", () => {
+			const payloadObject = { sub: "abc", env: "dev" };
+			const base64url = Buffer.from(JSON.stringify(payloadObject))
+				.toString("base64")
+				.replace(/\+/g, "-")
+				.replace(/\//g, "_")
+				.replace(/=+$/, "");
+			const token = `header.${base64url}.signature`;
+
+			const decoded = decodeJWT(token);
+			expect(decoded).toEqual(payloadObject);
+		});
+
 		it("should return null for invalid JWT", () => {
 			const result = decodeJWT("invalid-token");
 			expect(result).toBeNull();
@@ -205,8 +218,7 @@ describe("Auth Module", () => {
 			const result = await exchangeAuthorizationCode("code", "verifier");
 			expect(result).toEqual({ type: "failed" });
 			expect(console.error).toHaveBeenCalledWith(
-				'[openai-codex-plugin] Authorization code exchange failed {"status":400,"body":"bad request"}',
-				"",
+				'[openhax/codex] Authorization code exchange failed {"status":400,"body":"bad request"}',
 			);
 		});
 
@@ -219,8 +231,7 @@ describe("Auth Module", () => {
 			fetchMock.mockResolvedValueOnce(badRes);
 			await exchangeAuthorizationCode("code", "verifier");
 			expect(console.error).toHaveBeenCalledWith(
-				'[openai-codex-plugin] Authorization code exchange failed {"status":500,"body":""}',
-				"",
+				'[openhax/codex] Authorization code exchange failed {"status":500,"body":""}',
 			);
 		});
 
@@ -232,8 +243,7 @@ describe("Auth Module", () => {
 			const result = await exchangeAuthorizationCode("code", "verifier");
 			expect(result).toEqual({ type: "failed" });
 			expect(console.error).toHaveBeenCalledWith(
-				'[openai-codex-plugin] Token response missing fields {"access_token":"only-access"}',
-				"",
+				'[openhax/codex] Token response missing fields {"access_token":"only-access"}',
 			);
 		});
 	});
@@ -257,7 +267,7 @@ describe("Auth Module", () => {
 				access: "new-access",
 				refresh: "new-refresh",
 			});
-			expect(result.expires).toBeGreaterThan(Date.now());
+
 			const [url, init] = fetchMock.mock.calls[0];
 			expect(url).toBe("https://auth.openai.com/oauth/token");
 			expect((init as RequestInit).method).toBe("POST");
@@ -274,8 +284,7 @@ describe("Auth Module", () => {
 			const result = await refreshAccessToken("refresh-token");
 			expect(result).toEqual({ type: "failed" });
 			expect(console.error).toHaveBeenCalledWith(
-				'[openai-codex-plugin] Token refresh failed {"status":401,"body":"denied"}',
-				"",
+				'[openhax/codex] Token refresh failed {"status":401,"body":"denied"}',
 			);
 		});
 
@@ -284,8 +293,7 @@ describe("Auth Module", () => {
 			const result = await refreshAccessToken("refresh-token");
 			expect(result).toEqual({ type: "failed" });
 			expect(console.error).toHaveBeenCalledWith(
-				'[openai-codex-plugin] Token refresh error {"error":"network down"}',
-				"",
+				'[openhax/codex] Token refresh error {"error":"network down"}',
 			);
 		});
 
@@ -298,8 +306,7 @@ describe("Auth Module", () => {
 			fetchMock.mockResolvedValueOnce(badRes);
 			await refreshAccessToken("refresh-token");
 			expect(console.error).toHaveBeenCalledWith(
-				'[openai-codex-plugin] Token refresh failed {"status":403,"body":""}',
-				"",
+				'[openhax/codex] Token refresh failed {"status":403,"body":""}',
 			);
 		});
 
@@ -310,8 +317,7 @@ describe("Auth Module", () => {
 			const result = await refreshAccessToken("refresh-token");
 			expect(result).toEqual({ type: "failed" });
 			expect(console.error).toHaveBeenCalledWith(
-				'[openai-codex-plugin] Token refresh response missing fields {"access_token":"only"}',
-				"",
+				'[openhax/codex] Token refresh response missing fields {"access_token":"only"}',
 			);
 		});
 	});

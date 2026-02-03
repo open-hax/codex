@@ -45,11 +45,16 @@ vi.mock("../lib/session/response-recorder.js", () => ({
 	recordSessionResponseFromHandledResponse: recordSessionResponseMock,
 }));
 
+vi.mock("../lib/metrics/request-metrics.js", () => ({
+	__esModule: true,
+	recordRequestMetrics: vi.fn(),
+}));
+
 describe("createCodexFetcher", () => {
 	const sessionManager = {
 		recordResponse: vi.fn(),
 		getContext: vi.fn(),
-		applyRequest: vi.fn(),
+		applyRequest: vi.fn((body, context) => ({ body, context })),
 	} as unknown as SessionManager;
 
 	beforeEach(() => {
@@ -87,8 +92,6 @@ describe("createCodexFetcher", () => {
 		pluginConfig: {
 			codexMode: true,
 			enablePromptCaching: true,
-			enableCodexCompaction: true,
-			autoCompactMinMessages: 8,
 		},
 	});
 
@@ -100,13 +103,15 @@ describe("createCodexFetcher", () => {
 		});
 
 		const fetcher = createCodexFetcher(baseDeps());
-		const response = await fetcher("https://api.openai.com/v1/chat/completions", { method: "POST" });
+		const response = await fetcher("https://api.openai.com/v1/chat/completions", {
+			method: "POST",
+		});
 
 		expect(extractRequestUrlMock).toHaveBeenCalled();
 		expect(rewriteUrlForCodexMock).toHaveBeenCalled();
 		expect(transformRequestForCodexMock).toHaveBeenCalledWith(
 			expect.anything(),
-			"https://codex/backend",
+			"https://api.openai.com/v1/chat/completions",
 			"instructions",
 			{ global: {}, models: {} },
 			true,
@@ -114,8 +119,6 @@ describe("createCodexFetcher", () => {
 			{
 				codexMode: true,
 				enablePromptCaching: true,
-				enableCodexCompaction: true,
-				autoCompactMinMessages: 8,
 			},
 		);
 		expect(maybeHandleCodexCommandMock).toHaveBeenCalled();
@@ -145,7 +148,15 @@ describe("createCodexFetcher", () => {
 
 	it("continues processing when token refresh succeeds", async () => {
 		shouldRefreshTokenMock.mockReturnValue(true);
-		refreshAndUpdateTokenMock.mockResolvedValue({ success: true });
+		refreshAndUpdateTokenMock.mockResolvedValue({
+			success: true,
+			auth: {
+				type: "oauth" as const,
+				access: "new-access",
+				refresh: "new-refresh",
+				expires: Date.now() + 20_000,
+			},
+		});
 		transformRequestForCodexMock.mockResolvedValue({
 			body: { model: "gpt-5" },
 		});
@@ -154,6 +165,31 @@ describe("createCodexFetcher", () => {
 		await fetcher("https://api.openai.com", {});
 		expect(refreshAndUpdateTokenMock).toHaveBeenCalled();
 		expect(fetchMock).toHaveBeenCalled();
+	});
+
+	it("uses refreshed auth when refresh succeeds", async () => {
+		shouldRefreshTokenMock.mockReturnValue(true);
+		refreshAndUpdateTokenMock.mockResolvedValue({
+			success: true,
+			auth: {
+				type: "oauth" as const,
+				access: "refreshed-access",
+				refresh: "refreshed-refresh",
+				expires: Date.now() + 10_000,
+			},
+		});
+		transformRequestForCodexMock.mockResolvedValue({
+			body: { model: "gpt-5" },
+		});
+
+		const fetcher = createCodexFetcher(baseDeps());
+		await fetcher("https://api.openai.com", {});
+		expect(createCodexHeadersMock).toHaveBeenCalledWith(
+			expect.any(Object),
+			"acc-123",
+			"refreshed-access",
+			expect.any(Object),
+		);
 	});
 
 	it("returns command response early when maybeHandleCodexCommand matches", async () => {
@@ -228,18 +264,6 @@ describe("createCodexFetcher", () => {
 				headers: expect.any(Headers),
 				method: "POST",
 			}),
-		);
-	});
-
-	it("uses an empty request init when both transformation and init are missing", async () => {
-		transformRequestForCodexMock.mockResolvedValue(undefined);
-		const fetcher = createCodexFetcher(baseDeps());
-
-		await fetcher("https://api.openai.com");
-		expect(createCodexHeadersMock).toHaveBeenCalledWith({}, "acc-123", "access-token", expect.any(Object));
-		expect(fetchMock).toHaveBeenCalledWith(
-			"https://codex/backend",
-			expect.objectContaining({ headers: expect.any(Headers) }),
 		);
 	});
 

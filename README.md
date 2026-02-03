@@ -8,24 +8,79 @@ This plugin enables opencode to use OpenAI's Codex backend via ChatGPT Plus/Pro 
 
 > **Maintained by Open Hax.** Follow project updates at [github.com/open-hax/codex](https://github.com/open-hax/codex) and report issues or ideas there.
 
-## ⚠️ Terms of Service & Usage Notice
+## Installation
 
-**Important:** This plugin is designed for **personal development use only** with your own ChatGPT Plus/Pro subscription. By using this tool, you agree to:
+- **Prerequisites:** ChatGPT Plus or Pro subscription; OpenCode installed ([opencode.ai](https://opencode.ai)); Node.js 18+.
 
-- ✅ Use only for individual productivity and coding assistance
-- ✅ Respect OpenAI's rate limits and usage policies
-- ✅ Not use to power commercial services or resell access
-- ✅ Comply with [OpenAI's Terms of Use](https://openai.com/policies/terms-of-use/) and [Usage Policies](https://openai.com/policies/usage-policies/)
+**Quick start (minimal provider config — one model):**
 
-**This tool uses OpenAI's official OAuth authentication** (the same method as OpenAI's official Codex CLI). However, users are responsible for ensuring their usage complies with OpenAI's terms.
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@openhax/codex"],
+  "model": "openai/gpt-5.1-codex-max",
+  "provider": {
+    "openai": {
+      "options": {
+        "reasoningEffort": "medium",
+        "reasoningSummary": "auto",
+        "textVerbosity": "medium",
+        "include": ["reasoning.encrypted_content"],
+        "store": false
+      },
+      "models": {
+        "gpt-5.1-codex-max": {
+          "name": "GPT 5.1 Codex Max (OAuth)"
+        }
+      }
+    }
+  }
+}
+```
 
-### ⚠️ Not Suitable For:
-- Commercial API resale or white-labeling
-- High-volume automated extraction beyond personal use
-- Applications serving multiple users with one subscription
-- Any use that violates OpenAI's acceptable use policies
+1. Save that to `~/.config/opencode/opencode.json` (or project-specific `.opencode.json`).
+2. Restart OpenCode (it installs plugins automatically). If prompted, run `opencode auth login` and finish the OAuth flow with your ChatGPT account.
+3. In the TUI, choose `GPT 5.1 Codex Max (OAuth)` and start chatting.
 
-**For production applications or commercial use, use the [OpenAI Platform API](https://platform.openai.com/) with proper API keys.**
+Need a full walkthrough or update/cleanup steps? See [docs/getting-started.md](./docs/getting-started.md) and [docs/index.md](./docs/index.md#installation).
+
+Prefer every preset? Copy [`config/full-opencode.json`](./config/full-opencode.json) instead; it registers all GPT-5.1/GPT-5 Codex variants with recommended settings.
+
+Need live stats? A local dashboard now starts automatically (binds to 127.0.0.1 on a random port) and shows cache/request metrics plus the last few transformed requests; check logs for the URL.
+
+Want to customize? Jump to [Configuration reference](#configuration-reference).
+
+## Plugin-Level Settings
+
+Set these in `~/.opencode/openhax-codex-config.json` (applies to all models). Related env vars control runtime tweaks (e.g., request logging, env tail):
+
+- `codexMode` (default `true`): enable the Codex ↔ OpenCode bridge prompt and tool remapping
+- `enablePromptCaching` (default `true`): keep a stable `prompt_cache_key` so Codex can reuse cached prompts
+- `logging` (optional): override log defaults and related env vars (`ENABLE_PLUGIN_REQUEST_LOGGING`, `DEBUG_CODEX_PLUGIN`, `CODEX_LOG_MAX_BYTES`, `CODEX_LOG_MAX_FILES`, `CODEX_LOG_QUEUE_MAX`, `CODEX_SHOW_WARNING_TOASTS`, `CODEX_LOG_WARNINGS_TO_CONSOLE`). Fields:
+  - `enableRequestLogging`: force request log persistence even without `ENABLE_PLUGIN_REQUEST_LOGGING=1`
+  - `debug`: force debug logging regardless of env
+  - `showWarningToasts`: show warning-level toasts in the OpenCode UI
+  - `logWarningsToConsole`: mirror warnings to console when toasts are off
+  - `logMaxBytes` (default `5_242_880` bytes): rotate rolling log after this size
+  - `logMaxFiles` (default `5`): rotated log files to retain (plus the active log)
+  - `logQueueMax` (default `1000`): max buffered log entries before oldest entries drop
+- Env tail (optional): set `CODEX_APPEND_ENV_CONTEXT=1` to reattach env/files context as a trailing developer message (stripped from system prompts to keep the prefix stable). Default is unset/0 (env/files removed for maximum cache stability).
+- Log inspection helper: `node scripts/inspect-codex-logs.mjs [--dir <path>] [--limit N] [--id X] [--stage after-transform]` summarizes cached request logs (shows model, prompt_cache_key, roles, etc.).
+
+Example:
+
+```json
+{
+  "codexMode": true,
+  "enablePromptCaching": true,
+  "logging": {
+    "enableRequestLogging": true,
+    "logMaxBytes": 5242880,
+    "logMaxFiles": 5,
+    "logQueueMax": 1000
+  }
+}
+```
 
 ---
 
@@ -44,55 +99,53 @@ This plugin enables opencode to use OpenAI's Codex backend via ChatGPT Plus/Pro 
 - ✅ **Usage-aware errors** - Shows clear guidance when ChatGPT subscription limits are reached
 - ✅ **Type-safe & tested** - Strict TypeScript with 160+ unit tests + 14 integration tests
 - ✅ **Modular architecture** - Easy to maintain and extend
+
 **Prompt caching is enabled by default** to optimize your token usage and reduce costs.
 
-### Built-in Codex Commands
-
-These commands are typed as normal chat messages (no slash required). `codex-metrics`/`codex-inspect` run entirely inside the plugin. `codex-compact` issues a Codex summarization request, stores the summary, and trims future turns to keep prompts short.
-
-| Command | Aliases | Description |
-|---------|---------|-------------|
-| `codex-metrics` | `?codex-metrics`, `codexmetrics`, `/codex-metrics`* | Shows cache stats, recent prompt-cache sessions, and cache-warm status |
-| `codex-inspect` | `?codex-inspect`, `codexinspect`, `/codex-inspect`* | Dumps the pending request configuration (model, prompt cache key, tools, reasoning/text settings) |
-| `codex-compact` | `/codex-compact`, `compact`, `codexcompact` | Runs the Codex CLI compaction flow: summarizes the current conversation, replies with the summary, and resets Codex-side context to that summary |
-
-> \*Slash-prefixed variants only work in environments that allow arbitrary `/` commands. In the opencode TUI, stick to `codex-metrics` / `codex-inspect` / `codex-compact` so the message is treated as normal chat text.
-
-**Auto compaction:** Configure `autoCompactTokenLimit`/`autoCompactMinMessages` in `~/.opencode/openhax-codex-config.json` to run compaction automatically when conversations grow long. When triggered, the plugin replies with the Codex summary and a note reminding you to resend the paused instruction; subsequent turns start from that summary instead of the entire backlog.
+> Optional: `CODEX_APPEND_ENV_CONTEXT=1` keeps env/files context by reattaching it as a trailing developer message while preserving a stable prefix. Leave unset to maximize cache stability.
 
 ### How Caching Works
 
-- **Enabled by default**: `enablePromptCaching: true` 
+- **Enabled by default**: `enablePromptCaching: true`
 - **GPT-5.1 models** leverage OpenAI's extended 24-hour prompt cache retention window for cheaper follow-ups
 - **Maintains conversation context** across multiple turns
 - **Reduces token consumption** by reusing cached prompts
 - **Lowers costs** significantly for multi-turn conversations
 
-### Managing Caching
-
-#### Recommended: Full Configuration (Codex CLI Experience)
+## Recommended: Full Configuration (Codex CLI Experience)
 
 For the complete experience with all reasoning variants matching the official Codex CLI:
 
 1. **Copy the full configuration** from [`config/full-opencode.json`](./config/full-opencode.json) to your opencode config file:
+
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    "@openhax/codex"
-  ],
+  "plugin": ["@openhax/codex"],
   "provider": {
     "openai": {
       "options": {
         "reasoningEffort": "medium",
         "reasoningSummary": "auto",
         "textVerbosity": "medium",
-        "include": [
-          "reasoning.encrypted_content"
-        ],
+        "include": ["reasoning.encrypted_content"],
         "store": false
       },
       "models": {
+        "gpt-5.1-codex-max": {
+          "name": "GPT 5.1 Codex Max (OAuth)",
+          "limit": {
+            "context": 400000,
+            "output": 128000
+          },
+          "options": {
+            "reasoningEffort": "medium",
+            "reasoningSummary": "auto",
+            "textVerbosity": "medium",
+            "include": ["reasoning.encrypted_content"],
+            "store": false
+          }
+        },
         "gpt-5.1-codex-low": {
           "name": "GPT 5.1 Codex Low (OAuth)",
           "limit": {
@@ -103,9 +156,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "low",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -119,9 +170,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "medium",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -135,9 +184,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "high",
             "reasoningSummary": "detailed",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -151,9 +198,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "medium",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -167,9 +212,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "high",
             "reasoningSummary": "detailed",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -183,9 +226,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "none",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -199,9 +240,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "low",
             "reasoningSummary": "auto",
             "textVerbosity": "low",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -215,9 +254,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "medium",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -231,9 +268,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "high",
             "reasoningSummary": "detailed",
             "textVerbosity": "high",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -247,9 +282,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "low",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -263,9 +296,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "medium",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -279,9 +310,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "high",
             "reasoningSummary": "detailed",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -295,9 +324,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "medium",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -311,9 +338,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "high",
             "reasoningSummary": "detailed",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -327,9 +352,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "minimal",
             "reasoningSummary": "auto",
             "textVerbosity": "low",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -343,9 +366,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "low",
             "reasoningSummary": "auto",
             "textVerbosity": "low",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -359,9 +380,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "medium",
             "reasoningSummary": "auto",
             "textVerbosity": "medium",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -375,9 +394,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "high",
             "reasoningSummary": "detailed",
             "textVerbosity": "high",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -391,9 +408,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "low",
             "reasoningSummary": "auto",
             "textVerbosity": "low",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         },
@@ -407,9 +422,7 @@ For the complete experience with all reasoning variants matching the official Co
             "reasoningEffort": "minimal",
             "reasoningSummary": "auto",
             "textVerbosity": "low",
-            "include": [
-              "reasoning.encrypted_content"
-            ],
+            "include": ["reasoning.encrypted_content"],
             "store": false
           }
         }
@@ -419,35 +432,44 @@ For the complete experience with all reasoning variants matching the official Co
 }
 ```
 
-   **Global config**: `~/.config/opencode/opencode.json`
-   **Project config**: `<project>/.opencode.json`
+**Global config**: `~/.config/opencode/opencode.json`
+**Project config**: `<project>/.opencode.json`
 
-   This now gives you 20 model variants: the new GPT-5.1 lineup (recommended) plus every legacy gpt-5 preset for backwards compatibility.
+This now gives you 22 model variants: the refreshed GPT-5.2 frontier preset, the GPT-5.1 lineup (with Codex Max as the default), plus every legacy gpt-5 preset for backwards compatibility.
 
-   All appear in the opencode model selector as "GPT 5.1 Codex Low (OAuth)", "GPT 5 High (OAuth)", etc.
+All appear in the opencode model selector as "GPT 5.1 Codex Low (OAuth)", "GPT 5 High (OAuth)", etc.
 
 ### Available Model Variants (Full Config)
 
 When using [`config/full-opencode.json`](./config/full-opencode.json), you get these GPT-5.1 presets plus the original gpt-5 variants:
 
+#### GPT-5.2 frontier preset
+
+| CLI Model ID | TUI Display Name | Reasoning Effort               | Best For                                                               |
+| ------------ | ---------------- | ------------------------------ | ---------------------------------------------------------------------- |
+| `gpt-5.2`    | GPT 5.2 (OAuth)  | Low/Medium/High/**Extra High** | Latest frontier model with improved reasoning + general-purpose coding |
+
 #### GPT-5.1 lineup (recommended)
 
-| CLI Model ID | TUI Display Name | Reasoning Effort | Best For |
-|--------------|------------------|-----------------|----------|
-| `gpt-5.1-codex-low` | GPT 5.1 Codex Low (OAuth) | Low | Fast code generation on the newest Codex tier |
-| `gpt-5.1-codex-medium` | GPT 5.1 Codex Medium (OAuth) | Medium | Balanced code + tooling workflows |
-| `gpt-5.1-codex-high` | GPT 5.1 Codex High (OAuth) | High | Multi-step coding tasks with deep tool use |
-| `gpt-5.1-codex-mini-medium` | GPT 5.1 Codex Mini Medium (OAuth) | Medium | Budget-friendly Codex runs (200k/100k tokens) |
-| `gpt-5.1-codex-mini-high` | GPT 5.1 Codex Mini High (OAuth) | High | Cheaper Codex tier with maximum reasoning |
-| `gpt-5.1-none` | GPT 5.1 None (OAuth) | None | Latency-sensitive chat/tasks using the new "no reasoning" mode |
-| `gpt-5.1-low` | GPT 5.1 Low (OAuth) | Low | Fast general-purpose chat with light reasoning |
-| `gpt-5.1-medium` | GPT 5.1 Medium (OAuth) | Medium | Default adaptive reasoning for everyday work |
-| `gpt-5.1-high` | GPT 5.1 High (OAuth) | High | Deep analysis when reliability matters most |
+| CLI Model ID                | TUI Display Name                  | Reasoning Effort               | Best For                                                                      |
+| --------------------------- | --------------------------------- | ------------------------------ | ----------------------------------------------------------------------------- |
+| `gpt-5.1-codex-max`         | GPT 5.1 Codex Max (OAuth)         | Low/Medium/High/**Extra High** | Default flagship tier with `xhigh` reasoning for complex, multi-step problems |
+| `gpt-5.1-codex-low`         | GPT 5.1 Codex Low (OAuth)         | Low                            | Fast code generation on the newest Codex tier                                 |
+| `gpt-5.1-codex-medium`      | GPT 5.1 Codex Medium (OAuth)      | Medium                         | Balanced code + tooling workflows                                             |
+| `gpt-5.1-codex-high`        | GPT 5.1 Codex High (OAuth)        | High                           | Multi-step coding tasks with deep tool use                                    |
+| `gpt-5.1-codex-mini-medium` | GPT 5.1 Codex Mini Medium (OAuth) | Medium                         | Budget-friendly Codex runs (200k/100k tokens)                                 |
+| `gpt-5.1-codex-mini-high`   | GPT 5.1 Codex Mini High (OAuth)   | High                           | Cheaper Codex tier with maximum reasoning                                     |
+| `gpt-5.1-none`              | GPT 5.1 None (OAuth)              | **None**                       | Latency-sensitive chat/tasks using the "no reasoning" mode                    |
+| `gpt-5.1-low`               | GPT 5.1 Low (OAuth)               | Low                            | Fast general-purpose chat with light reasoning                                |
+| `gpt-5.1-medium`            | GPT 5.1 Medium (OAuth)            | Medium                         | Default adaptive reasoning for everyday work                                  |
+| `gpt-5.1-high`              | GPT 5.1 High (OAuth)              | High                           | Deep analysis when reliability matters most                                   |
+
+> **Extra High reasoning:** `reasoningEffort: "xhigh"` provides maximum computational effort for complex, multi-step problems and is honored on `gpt-5.1-codex-max` and `gpt-5.2`. Other models automatically map that option to `high` so their API calls remain valid.
 
 #### Legacy GPT-5 lineup (still supported)
 
 | CLI Model ID | TUI Display Name | Reasoning Effort | Best For |
-|--------------|------------------|-----------------|----------|
+| ------------ | ---------------- | ---------------- | -------- |
 
 | `gpt-5-codex-low` | GPT 5 Codex Low (OAuth) | Low | Fast code generation |
 | `gpt-5-codex-medium` | GPT 5 Codex Medium (OAuth) | Medium | Balanced code tasks |
@@ -498,14 +520,47 @@ When no configuration is specified, the plugin uses these defaults for all GPT-5
 - **`reasoningSummary: "auto"`** - Automatically adapts summary verbosity
 - **`textVerbosity: "medium"`** - Balanced output length
 
-These defaults match the official Codex CLI behavior and can be customized (see Configuration below). GPT-5.1 requests automatically start at `reasoningEffort: "none"`, while Codex/Codex Mini presets continue to clamp to their supported levels.
+These defaults match the official Codex CLI behavior and can be customized (see Configuration below). GPT-5.1 requests automatically start at `reasoningEffort: "none"`, while Codex/Codex Mini presets continue to clamp to their supported levels, and GPT-5.2 keeps `reasoningEffort: "medium"` but accepts `xhigh` while mapping `none`/`minimal` to `low`.
 
-## Configuration
+## Configuration Reference
 
-### Recommended: Use Pre-Configured File
+Already set up from Installation? You're all set. Use this section when you want to tweak defaults or build custom presets.
 
-The easiest way to get started is to use [`config/full-opencode.json`](./config/full-opencode.json), which provides:
-- 20 pre-configured model variants matching the latest Codex CLI presets (GPT-5.1 + GPT-5)
+### Minimal configuration (single model)
+
+Use the smallest working provider config if you only need one flagship model:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@openhax/codex"],
+  "model": "openai/gpt-5.1-codex-max",
+  "provider": {
+    "openai": {
+      "options": {
+        "reasoningEffort": "medium",
+        "reasoningSummary": "auto",
+        "textVerbosity": "medium",
+        "include": ["reasoning.encrypted_content"],
+        "store": false
+      },
+      "models": {
+        "gpt-5.1-codex-max": {
+          "name": "GPT 5.1 Codex Max (OAuth)"
+        }
+      }
+    }
+  }
+}
+```
+
+`gpt-5.1-codex-max` is the recommended default for balanced reasoning + tool use. Switch the `model` value if you prefer another preset.
+
+### Full preset bundle
+
+The easiest way to get all presets is to use [`config/full-opencode.json`](./config/full-opencode.json), which provides:
+
+- 22 pre-configured model variants matching the latest Codex CLI presets (GPT-5.2 + GPT-5.1 Codex lineup + GPT-5)
 - Optimal settings for each reasoning level
 - All variants visible in the opencode model selector
 
@@ -519,24 +574,16 @@ If you want to customize settings yourself, you can configure options at provide
 
 ⚠️ **Important**: The two base models have different supported values.
 
-| Setting | GPT-5 / GPT-5.1 Values | GPT-5-Codex / Codex Mini Values | Plugin Default |
-|---------|-------------|-------------------|----------------|
-| `reasoningEffort` | `none`, `minimal`, `low`, `medium`, `high` | `low`, `medium`, `high` | `medium` |
-| `reasoningSummary` | `auto`, `detailed` | `auto`, `detailed` | `auto` |
-| `textVerbosity` | `low`, `medium`, `high` | `medium` only | `medium` |
-| `include` | Array of strings | Array of strings | `["reasoning.encrypted_content"]` |
+| Setting            | GPT-5 / GPT-5.1 Values                     | GPT-5-Codex / Codex Mini Values   | Plugin Default                    |
+| ------------------ | ------------------------------------------ | --------------------------------- | --------------------------------- |
+| `reasoningEffort`  | `none`, `minimal`, `low`, `medium`, `high` | `low`, `medium`, `high`, `xhigh`† | `medium`                          |
+| `reasoningSummary` | `auto`, `detailed`                         | `auto`, `detailed`                | `auto`                            |
+| `textVerbosity`    | `low`, `medium`, `high`                    | `medium` only                     | `medium`                          |
+| `include`          | Array of strings                           | Array of strings                  | `["reasoning.encrypted_content"]` |
 
-> **Note**: `minimal` effort is auto-normalized to `low` for gpt-5-codex (not supported by the API). `none` is only supported on GPT-5.1 general models; when used with legacy gpt-5 it is normalized to `minimal`.
-
-#### Plugin-Level Settings
-
-Set these in `~/.opencode/openhax-codex-config.json`:
-
-- `codexMode` (default `true`): enable the Codex ↔ OpenCode bridge prompt
-- `enablePromptCaching` (default `true`): keep a stable `prompt_cache_key` and preserved message IDs so Codex can reuse cached prompts, reducing token usage and costs
-- `enableCodexCompaction` (default `true`): expose `/codex-compact` and allow the plugin to rewrite history based on Codex summaries
-- `autoCompactTokenLimit` (default unset): when set, triggers Codex compaction once the approximate token count exceeds this value
-- `autoCompactMinMessages` (default `8`): minimum number of conversation turns before auto-compaction is considered
+> **Note**: `minimal` effort is auto-normalized to `low` for gpt-5-codex (not supported by the API). `none` is only supported on GPT-5.1 general models; when used with legacy gpt-5 it is normalized to `minimal`, and `gpt-5.2` automatically bumps `none`/`minimal` to `low`. `xhigh` is honored on `gpt-5.1-codex-max` and `gpt-5.2`—other presets automatically map it to `high`.
+>
+> † **Extra High reasoning**: `reasoningEffort: "xhigh"` provides maximum computational effort for complex, multi-step problems and is only available on `gpt-5.1-codex-max` and `gpt-5.2`.
 
 #### Global Configuration Example
 
@@ -615,6 +662,7 @@ This plugin respects the same rate limits enforced by OpenAI's official Codex CL
 - **The plugin does NOT and CANNOT bypass** OpenAI's rate limits
 
 ### Best Practices:
+
 - ✅ Use for individual coding tasks, not bulk processing
 - ✅ Avoid rapid-fire automated requests
 - ✅ Monitor your usage to stay within subscription limits
@@ -625,11 +673,6 @@ This plugin respects the same rate limits enforced by OpenAI's official Codex CL
 **Note:** Excessive usage or violations of OpenAI's terms may result in temporary throttling or account review by OpenAI.
 
 ---
-
-## Requirements
-
-- **ChatGPT Plus or Pro subscription** (required)
-- **OpenCode** installed ([opencode.ai](https://opencode.ai))
 
 ## Updating & Clearing Caches
 
@@ -659,7 +702,6 @@ OpenCode caches plugins under `~/.cache/opencode` and stores Codex-specific asse
 
 ## Debug Mode
 
-
 Enable detailed logging:
 
 ```bash
@@ -683,6 +725,7 @@ See [Troubleshooting Guide](https://open-hax.github.io/codex/troubleshooting) fo
 This plugin uses **OpenAI's official OAuth authentication** (the same method as their official Codex CLI). It's designed for personal coding assistance with your own ChatGPT subscription.
 
 However, **users are responsible for ensuring their usage complies with OpenAI's Terms of Use**. This means:
+
 - Personal use for your own development
 - Respecting rate limits
 - Not reselling access or powering commercial services
@@ -699,12 +742,14 @@ For commercial applications, production systems, or services serving multiple us
 Using OAuth authentication for personal coding assistance aligns with OpenAI's official Codex CLI use case. However, violating OpenAI's terms could result in account action:
 
 **Safe use:**
+
 - Personal coding assistance
 - Individual productivity
 - Legitimate development work
 - Respecting rate limits
 
 **Risky use:**
+
 - Commercial resale of access
 - Powering multi-user services
 - High-volume automated extraction
@@ -713,6 +758,7 @@ Using OAuth authentication for personal coding assistance aligns with OpenAI's o
 ### What's the difference between this and scraping session tokens?
 
 **Critical distinction:**
+
 - ✅ **This plugin:** Uses official OAuth authentication through OpenAI's authorization server
 - ❌ **Session scraping:** Extracts cookies/tokens from browsers (clearly violates TOS)
 
@@ -737,10 +783,11 @@ ChatGPT, GPT-5, and Codex are trademarks of OpenAI.
 **Prompt caching is enabled by default** to save you money:
 
 - **Reduces token usage** by reusing conversation context across turns
-- **Lowers costs** significantly for multi-turn conversations  
+- **Lowers costs** significantly for multi-turn conversations
 - **Maintains context** so the AI remembers previous parts of your conversation
 
 You can disable it by creating `~/.opencode/openhax-codex-config.json` with:
+
 ```json
 {
   "enablePromptCaching": false
@@ -754,12 +801,14 @@ You can disable it by creating `~/.opencode/openhax-codex-config.json` with:
 ## Credits & Attribution
 
 This plugin implements OAuth authentication for OpenAI's Codex backend, using the same authentication flow as:
+
 - [OpenAI's official Codex CLI](https://github.com/openai/codex)
 - OpenAI's OAuth authorization server (https://chatgpt.com/oauth)
 
 ### Acknowledgments
 
 Based on research and working implementations from:
+
 - [ben-vargas/ai-sdk-provider-chatgpt-oauth](https://github.com/ben-vargas/ai-sdk-provider-chatgpt-oauth)
 - [ben-vargas/ai-opencode-chatgpt-auth](https://github.com/ben-vargas/ai-opencode-chatgpt-auth)
 - [openai/codex](https://github.com/openai/codex) OAuth flow
@@ -774,11 +823,32 @@ Based on research and working implementations from:
 ## Documentation
 
 **📖 Documentation:**
+
 - [Installation](#installation) - Get started in 2 minutes
-- [Configuration](#configuration) - Customize your setup
+- [Configuration reference](#configuration-reference) - Customize your setup
 - [Troubleshooting](#troubleshooting) - Common issues
 - [GitHub Pages Docs](https://open-hax.github.io/codex/) - Extended guides
 - [Developer Docs](https://open-hax.github.io/codex/development/ARCHITECTURE) - Technical deep dive
+
+## Terms of Service & Usage Notice
+
+**Important:** This plugin is designed for **personal development use only** with your own ChatGPT Plus/Pro subscription. By using this tool, you agree to:
+
+- ✅ Use only for individual productivity and coding assistance
+- ✅ Respect OpenAI's rate limits and usage policies
+- ✅ Not use to power commercial services or resell access
+- ✅ Comply with [OpenAI's Terms of Use](https://openai.com/policies/terms-of-use/) and [Usage Policies](https://openai.com/policies/usage-policies/)
+
+**This tool uses OpenAI's official OAuth authentication** (the same method as OpenAI's official Codex CLI). However, users are responsible for ensuring their usage complies with OpenAI's terms.
+
+### ⚠️ Not Suitable For:
+
+- Commercial API resale or white-labeling
+- High-volume automated extraction beyond personal use
+- Applications serving multiple users with one subscription
+- Any use that violates OpenAI's acceptable use policies
+
+**For production applications or commercial use, use the [OpenAI Platform API](https://platform.openai.com/) with proper API keys.**
 
 ## License
 

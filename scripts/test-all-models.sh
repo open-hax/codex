@@ -164,6 +164,7 @@ EOCONFIG
 # ============================================================================
 update_config "full"
 
+ test_model "gpt-5.1-codex-max"      "gpt-5.1-codex-max" "medium"  "auto"     "medium"
  test_model "gpt-5.1-codex-low"       "gpt-5.1-codex"      "low"     "auto"     "medium"
  test_model "gpt-5.1-codex-medium"    "gpt-5.1-codex"      "medium"  "auto"     "medium"
  test_model "gpt-5.1-codex-high"      "gpt-5.1-codex"      "high"    "detailed" "medium"
@@ -173,8 +174,10 @@ update_config "full"
  test_model "gpt-5.1-low"             "gpt-5.1"            "low"     "auto"     "low"
  test_model "gpt-5.1-medium"          "gpt-5.1"            "medium"  "auto"     "medium"
  test_model "gpt-5.1-high"            "gpt-5.1"            "high"    "detailed" "high"
-
+ test_model "gpt-5.2"                 "gpt-5.2"            "medium"  "auto"     "low"
+ 
  test_model "gpt-5-codex-low"    "gpt-5-codex" "low"     "auto"     "medium"
+
 
 test_model "gpt-5-codex-medium" "gpt-5-codex" "medium"  "auto"     "medium"
 test_model "gpt-5-codex-high"   "gpt-5-codex" "high"    "detailed" "medium"

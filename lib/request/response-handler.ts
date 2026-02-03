@@ -1,4 +1,5 @@
-import { LOGGING_ENABLED, logError, logRequest } from "../logger.js";
+import { PLUGIN_NAME } from "../constants.js";
+import { isLoggingEnabled, logError, logRequest } from "../logger.js";
 import type { SSEEventData } from "../types.js";
 
 /**
@@ -18,7 +19,7 @@ function parseSseStream(sseText: string): unknown | null {
 				if (data.type === "response.done" || data.type === "response.completed") {
 					return data.response;
 				}
-			} catch (_e) {
+			} catch {
 				// Skip malformed JSON
 			}
 		}
@@ -35,7 +36,7 @@ function parseSseStream(sseText: string): unknown | null {
  */
 export async function convertSseToJson(response: Response, headers: Headers): Promise<Response> {
 	if (!response.body) {
-		throw new Error("[openai-codex-plugin] Response has no body");
+		throw new Error(`${PLUGIN_NAME} Response has no body`);
 	}
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
@@ -49,7 +50,7 @@ export async function convertSseToJson(response: Response, headers: Headers): Pr
 			fullText += decoder.decode(value, { stream: true });
 		}
 
-		if (LOGGING_ENABLED) {
+		if (isLoggingEnabled()) {
 			logRequest("stream-full", { fullContent: fullText });
 		}
 
