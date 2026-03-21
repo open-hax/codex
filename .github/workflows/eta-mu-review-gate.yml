@@ -1,0 +1,50 @@
+name: eta-mu-review-gate
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  coderabbit-review-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+
+      - name: Checkout eta-mu logic
+        uses: actions/checkout@v4
+        with:
+          repository: open-hax/eta-mu-github
+          path: .eta-mu
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: .eta-mu/pnpm-lock.yaml
+
+      - name: Install eta-mu dependencies
+        run: pnpm --dir .eta-mu install --frozen-lockfile
+
+      - name: Enforce review-thread resolution for configured actors
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ETA_MU_REVIEW_ACTORS: ${{ vars.ETA_MU_REVIEW_ACTORS }}
+        run: >-
+          pnpm --dir .eta-mu dev review-gate
+          --repo "${GITHUB_REPOSITORY}"
+          --pr "${{ github.event.pull_request.number }}"
