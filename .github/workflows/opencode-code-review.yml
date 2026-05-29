@@ -1,0 +1,39 @@
+name: OpenCode Kimi PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: opencode-kimi-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review pull request with OpenCode
+    if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run OpenCode review
+        uses: anomalyco/opencode/github@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
+        with:
+          model: kimi-for-coding/k2p5
+          use_github_token: true
+          prompt: |
+            Review this pull request as a senior maintainer.
+            Focus on correctness, security, maintainability, tests, and repo-specific conventions.
+            Prefer concise, actionable findings with enough context for the author to act.
+            Do not request cosmetic churn unless it prevents confusion or future defects.
