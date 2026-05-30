@@ -42,7 +42,8 @@ jobs:
             Review this pull request as a senior maintainer.
             Focus on correctness, security, maintainability, tests, and repo-specific conventions.
             Prefer concise, actionable findings with enough context for the author to act.
-            Prefer inline review comments on the exact changed lines when you find concrete code issues.
+            Submit concrete findings as GitHub PR inline review comments on the exact changed lines whenever GitHub can attach them.
+            If there are no actionable findings, leave a short passing review summary instead of inventing comments.
             Do not request cosmetic churn unless it prevents confusion or future defects.
 
       - name: Send new inline review comments to Discord
