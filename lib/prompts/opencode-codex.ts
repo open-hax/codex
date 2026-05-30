@@ -15,7 +15,6 @@ import { getOpenCodePath } from "../utils/file-system-utils.js";
 
 const OPENCODE_CODEX_URLS = [
 	"https://raw.githubusercontent.com/sst/opencode/dev/packages/opencode/src/session/prompt/codex.txt",
-	"https://raw.githubusercontent.com/sst/opencode/main/packages/opencode/src/session/prompt/codex.txt",
 ];
 
 interface OpenCodeCacheMeta {
@@ -238,7 +237,7 @@ export async function getOpenCodeCodexPrompt(): Promise<string> {
 	}
 
 	if (lastError) {
-		logError("Failed to fetch OpenCode codex.txt from GitHub", { error: lastError.message });
+		logWarn("Failed to fetch OpenCode codex.txt from GitHub; falling back to text-based detection", { error: lastError.message });
 	}
 
 	if (usableContent) {
