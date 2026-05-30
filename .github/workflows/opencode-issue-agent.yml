@@ -1,0 +1,94 @@
+name: OpenCode Kimi Issue Agent
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  schedule:
+    - cron: "23 10 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: opencode-kimi-issues-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  issue-triage:
+    name: Triage issue with OpenCode
+    if: ${{ github.event_name == 'issues' && github.event.issue.pull_request == null }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run OpenCode issue triage
+        uses: anomalyco/opencode/github@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
+        with:
+          model: kimi-for-coding/k2p5
+          use_github_token: true
+          prompt: |
+            You are the Kimi issue agent for this repository. Triage the triggering GitHub issue.
+
+            Goals:
+            - Decide whether the issue is actionable, duplicate, irrelevant, spam, or needs more information.
+            - If the issue is clearly irrelevant, spam, out of scope, or a duplicate, leave a concise explanatory comment and close it.
+            - If the issue is valid but underspecified, ask specific follow-up questions and leave it open.
+            - If a small, safe code or documentation fix is appropriate, create a branch, commit the fix, and open a pull request linked to the issue.
+            - If the work is larger or risky, leave an implementation plan and keep the issue open.
+
+            Guardrails:
+            - Do not close an issue when the evidence is ambiguous.
+            - Do not make broad rewrites, dependency churn, secret changes, or destructive changes.
+            - Prefer minimal pull requests with tests or documentation updates when applicable.
+            - Never print secrets or credentials.
+
+  daily-issue-sweep:
+    name: Daily OpenCode issue sweep
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run daily OpenCode issue sweep
+        uses: anomalyco/opencode/github@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KIMI_API_KEY: ${{ secrets.KIMI_FOR_CODING_API_KEY }}
+        with:
+          model: kimi-for-coding/k2p5
+          use_github_token: true
+          prompt: |
+            Perform a daily maintenance sweep of this repository's open GitHub issues.
+
+            Scope:
+            - Use the GitHub API or gh CLI with GITHUB_TOKEN to inspect open issues, excluding pull requests.
+            - Prioritize issues updated recently or issues with no maintainer response.
+            - Limit active changes to at most five issues per run to avoid noisy automation.
+
+            For each issue you act on:
+            - Close only clearly irrelevant, spam, out-of-scope, or duplicate issues, and always leave a short reason.
+            - If more information is needed, ask concrete follow-up questions and leave the issue open.
+            - If a small, safe fix is appropriate, create a branch, commit the fix, and open a linked pull request.
+            - If the issue needs human judgment or larger design work, summarize the next recommended step and leave it open.
+
+            Guardrails:
+            - Do not spam repeat comments; skip issues where the latest maintainer/agent response is still current.
+            - Do not make broad rewrites, dependency churn, secret changes, or destructive changes.
+            - Never print secrets or credentials.
