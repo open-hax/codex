@@ -1,0 +1,60 @@
+name: Code Review Comments to Discord
+
+on:
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  discord:
+    name: Send inline review comment to Discord
+    runs-on: ubuntu-latest
+    env:
+      HAS_DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL != '' }}
+    steps:
+      - name: Send inline review comment to Discord
+        if: ${{ env.HAS_DISCORD_REVIEW_WEBHOOK_URL == 'true' }}
+        uses: actions/github-script@v7
+        env:
+          DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const webhookUrl = process.env.DISCORD_REVIEW_WEBHOOK_URL;
+            const { owner, repo } = context.repo;
+            const comment = context.payload.comment;
+            const pr = context.payload.pull_request;
+            if (!webhookUrl || !comment || !pr) return;
+
+            const truncate = (value, max) => {
+              const text = String(value || '');
+              return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+            };
+
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                username: 'Kimi Code Review',
+                content: `Inline review comment on ${owner}/${repo}#${pr.number}`,
+                embeds: [{
+                  title: `${owner}/${repo}#${pr.number}: inline review comment`,
+                  url: comment.html_url,
+                  color: 0x8b5cf6,
+                  description: truncate(comment.body, 3500),
+                  fields: [
+                    { name: 'Author', value: comment.user?.login || 'unknown', inline: true },
+                    { name: 'File', value: truncate(comment.path || 'unknown', 1024), inline: true },
+                    { name: 'Line', value: String(comment.line || comment.original_line || 'n/a'), inline: true },
+                    { name: 'PR', value: pr.html_url, inline: false },
+                  ],
+                  timestamp: comment.created_at,
+                }],
+                allowed_mentions: { parse: [] },
+              }),
+            });
+            if (!response.ok) {
+              throw new Error(`Discord webhook failed: ${response.status} ${await response.text()}`);
+            }
