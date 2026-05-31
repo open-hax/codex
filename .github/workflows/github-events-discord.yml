@@ -1,0 +1,148 @@
+name: GitHub Events to Discord
+
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled, assigned, unassigned]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, reopened, closed, ready_for_review, converted_to_draft, synchronize]
+  pull_request_review:
+    types: [submitted]
+  release:
+    types: [published]
+  push:
+    branches:
+      - main
+      - master
+      - dev
+      - "device/**"
+  workflow_run:
+    workflows:
+      - OpenCode Kimi PR Review
+      - OpenCode Kimi Issue Agent
+      - Code Review Comments to Discord
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  discord:
+    name: Send GitHub event to Discord
+    runs-on: ubuntu-latest
+    env:
+      HAS_DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL != '' }}
+    steps:
+      - name: Send GitHub event to Discord
+        if: ${{ env.HAS_DISCORD_REVIEW_WEBHOOK_URL == 'true' }}
+        uses: actions/github-script@v7
+        env:
+          DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const webhookUrl = process.env.DISCORD_REVIEW_WEBHOOK_URL;
+            if (!webhookUrl) return;
+
+            const { owner, repo } = context.repo;
+            const eventName = context.eventName;
+            const action = context.payload.action;
+            const truncate = (value, max) => {
+              const text = String(value || '');
+              return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+            };
+            const field = (name, value, inline = true) => ({ name, value: truncate(value || 'n/a', 1024), inline });
+
+            let title = `${owner}/${repo}: ${eventName}${action ? `:${action}` : ''}`;
+            let url = `https://github.com/${owner}/${repo}`;
+            let description = '';
+            const fields = [field('Repository', `${owner}/${repo}`), field('Event', action ? `${eventName}:${action}` : eventName)];
+            let color = 0x64748b;
+
+            if (context.payload.issue) {
+              const issue = context.payload.issue;
+              const isPr = Boolean(issue.pull_request);
+              title = `${owner}/${repo} ${isPr ? 'PR' : 'issue'} #${issue.number}: ${issue.title}`;
+              url = issue.html_url;
+              description = truncate(issue.body || '', 1000);
+              fields.push(field('Author', issue.user?.login), field('State', issue.state));
+              color = issue.state === 'closed' ? 0x6b7280 : 0x22c55e;
+            }
+
+            if (context.payload.comment) {
+              const comment = context.payload.comment;
+              title = `${owner}/${repo}: comment by ${comment.user?.login || 'unknown'}`;
+              url = comment.html_url;
+              description = truncate(comment.body || '', 1500);
+              fields.push(field('Comment author', comment.user?.login));
+              color = 0x38bdf8;
+            }
+
+            if (context.payload.pull_request) {
+              const pr = context.payload.pull_request;
+              title = `${owner}/${repo} PR #${pr.number}: ${pr.title}`;
+              url = pr.html_url;
+              description = truncate(pr.body || '', 1000);
+              fields.push(field('Author', pr.user?.login), field('State', pr.merged ? 'merged' : pr.state), field('Head', pr.head?.ref), field('Base', pr.base?.ref));
+              color = pr.merged ? 0x8b5cf6 : pr.state === 'closed' ? 0x6b7280 : 0x22c55e;
+            }
+
+            if (context.payload.review) {
+              const review = context.payload.review;
+              fields.push(field('Review author', review.user?.login), field('Review state', review.state));
+              description = truncate(review.body || description, 1500);
+              url = review.html_url || url;
+              color = review.state === 'approved' ? 0x22c55e : review.state === 'changes_requested' ? 0xef4444 : 0xf59e0b;
+            }
+
+            if (context.payload.release) {
+              const release = context.payload.release;
+              title = `${owner}/${repo} release: ${release.name || release.tag_name}`;
+              url = release.html_url;
+              description = truncate(release.body || '', 1500);
+              fields.push(field('Tag', release.tag_name), field('Author', release.author?.login));
+              color = 0x8b5cf6;
+            }
+
+            if (eventName === 'push') {
+              const ref = context.payload.ref?.replace('refs/heads/', '') || 'unknown';
+              title = `${owner}/${repo}: push to ${ref}`;
+              url = context.payload.compare || url;
+              const commits = context.payload.commits || [];
+              description = commits.slice(0, 5).map((commit) => `- ${commit.id.slice(0, 7)} ${truncate(commit.message.split('\n')[0], 120)}`).join('\n');
+              fields.push(field('Pusher', context.payload.pusher?.name), field('Commits', String(commits.length)));
+              color = 0x0ea5e9;
+            }
+
+            if (eventName === 'workflow_run') {
+              const run = context.payload.workflow_run;
+              title = `${owner}/${repo}: workflow ${run.name} ${run.conclusion || run.status}`;
+              url = run.html_url;
+              description = truncate(run.display_title || '', 1000);
+              fields.push(field('Workflow', run.name), field('Status', run.conclusion || run.status), field('Branch', run.head_branch));
+              color = run.conclusion === 'success' ? 0x22c55e : run.conclusion === 'failure' ? 0xef4444 : 0xf59e0b;
+            }
+
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                username: 'GitHub Event Mirror',
+                embeds: [{
+                  title: truncate(title, 256),
+                  url,
+                  color,
+                  description: truncate(description, 3500),
+                  fields: fields.slice(0, 12),
+                  timestamp: new Date().toISOString(),
+                }],
+                allowed_mentions: { parse: [] },
+              }),
+            });
+            if (!response.ok) {
+              throw new Error(`Discord webhook failed: ${response.status} ${await response.text()}`);
+            }
