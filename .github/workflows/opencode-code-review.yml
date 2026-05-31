@@ -13,13 +13,13 @@ jobs:
     name: Review pull request with OpenCode
     if: ${{ github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
+    env:
+      HAS_DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL != '' }}
     permissions:
       id-token: write
       contents: read
       pull-requests: write
       issues: write
-    env:
-      HAS_DISCORD_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_REVIEW_WEBHOOK_URL != '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -41,7 +41,8 @@ jobs:
           prompt: |
             Review this pull request as a senior maintainer.
             Focus on correctness, security, maintainability, tests, and repo-specific conventions.
-            Prefer concise, actionable findings with enough context for the author to act.
+            Check linked GitHub issues and any synced Kanban markers (`openhax-kanban-sync`) to understand the task intent.
+            If this repository has a kanban/ directory or docs/agent-workflows.md, use it as planning context and keep status/priority labels in mind.
             Submit concrete findings as GitHub PR inline review comments on the exact changed lines whenever GitHub can attach them.
             If there are no actionable findings, leave a short passing review summary instead of inventing comments.
             Do not request cosmetic churn unless it prevents confusion or future defects.
